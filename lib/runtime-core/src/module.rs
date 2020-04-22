@@ -9,10 +9,10 @@ use crate::{
     import::ImportObject,
     structures::{Map, TypedIndex},
     types::{
-        ExportDescriptor, FuncIndex, FuncSig, GlobalDescriptor, GlobalIndex, GlobalInit,
-        ImportDescriptor, ImportedFuncIndex, ImportedGlobalIndex, ImportedMemoryIndex,
-        ImportedTableIndex, Initializer, LocalGlobalIndex, LocalMemoryIndex, LocalTableIndex,
-        MemoryDescriptor, MemoryIndex, SigIndex, TableDescriptor, TableIndex,
+        ExportType, FuncIndex, FuncSig, GlobalIndex, GlobalInit, GlobalType, ImportType,
+        ImportedFuncIndex, ImportedGlobalIndex, ImportedMemoryIndex, ImportedTableIndex,
+        Initializer, LocalGlobalIndex, LocalMemoryIndex, LocalTableIndex, MemoryIndex, MemoryType,
+        SigIndex, TableIndex, TableType,
     },
     Instance,
 };
@@ -37,21 +37,21 @@ pub struct ModuleInner {
 pub struct ModuleInfo {
     /// Map of memory index to memory descriptors.
     // This are strictly local and the typesystem ensures that.
-    pub memories: Map<LocalMemoryIndex, MemoryDescriptor>,
+    pub memories: Map<LocalMemoryIndex, MemoryType>,
     /// Map of global index to global descriptors.
     pub globals: Map<LocalGlobalIndex, GlobalInit>,
     /// Map of table index to table descriptors.
-    pub tables: Map<LocalTableIndex, TableDescriptor>,
+    pub tables: Map<LocalTableIndex, TableType>,
 
     /// Map of imported function index to import name.
     // These are strictly imported and the typesystem ensures that.
     pub imported_functions: Map<ImportedFuncIndex, ImportName>,
     /// Map of imported memory index to import name and memory descriptor.
-    pub imported_memories: Map<ImportedMemoryIndex, (ImportName, MemoryDescriptor)>,
+    pub imported_memories: Map<ImportedMemoryIndex, (ImportName, MemoryType)>,
     /// Map of imported table index to import name and table descriptor.
-    pub imported_tables: Map<ImportedTableIndex, (ImportName, TableDescriptor)>,
+    pub imported_tables: Map<ImportedTableIndex, (ImportName, TableType)>,
     /// Map of imported global index to import name and global descriptor.
-    pub imported_globals: Map<ImportedGlobalIndex, (ImportName, GlobalDescriptor)>,
+    pub imported_globals: Map<ImportedGlobalIndex, (ImportName, GlobalType)>,
 
     /// Map of string to export index.
     // Implementation note: this should maintain the order that the exports appear in the
@@ -171,14 +171,14 @@ impl Module {
         &self.inner.info
     }
 
-    /// Get the [`ExportDescriptor`]s of the exports this [`Module`] provides.
-    pub fn exports(&self) -> Vec<ExportDescriptor> {
+    /// Get the [`ExportType`]s of the exports this [`Module`] provides.
+    pub fn exports(&self) -> Vec<ExportType> {
         self.inner.exports()
     }
 
-    /// Get the [`ImportDescriptor`]s describing the imports this [`Module`]
+    /// Get the [`ImportType`]s describing the imports this [`Module`]
     /// requires to be instantiated.
-    pub fn imports(&self) -> Vec<ImportDescriptor> {
+    pub fn imports(&self) -> Vec<ImportType> {
         let mut out = Vec::with_capacity(
             self.inner.info.imported_functions.len()
                 + self.inner.info.imported_memories.len()
@@ -208,7 +208,7 @@ impl Module {
                 .signatures
                 .get(*info.func_assoc.get(FuncIndex::new(idx.index())).unwrap())
                 .unwrap();
-            ImportDescriptor {
+            ImportType {
                 namespace,
                 name,
                 ty: sig.into(),
@@ -219,7 +219,7 @@ impl Module {
                 .values()
                 .map(|(import_name, memory_descriptor)| {
                     let (namespace, name) = get_import_name(info, import_name);
-                    ImportDescriptor {
+                    ImportType {
                         namespace,
                         name,
                         ty: memory_descriptor.into(),
@@ -230,7 +230,7 @@ impl Module {
                 .values()
                 .map(|(import_name, table_descriptor)| {
                     let (namespace, name) = get_import_name(info, import_name);
-                    ImportDescriptor {
+                    ImportType {
                         namespace,
                         name,
                         ty: table_descriptor.into(),
@@ -241,7 +241,7 @@ impl Module {
                 .values()
                 .map(|(import_name, global_descriptor)| {
                     let (namespace, name) = get_import_name(info, import_name);
-                    ImportDescriptor {
+                    ImportType {
                         namespace,
                         name,
                         ty: global_descriptor.into(),
@@ -271,42 +271,39 @@ impl Clone for Module {
 }
 
 impl ModuleInner {
-    /// Iterate over the [`ExportDescriptor`]s of the exports that this module provides.
-    pub(crate) fn exports_iter(&self) -> impl Iterator<Item = ExportDescriptor> + '_ {
-        self.info
-            .exports
-            .iter()
-            .map(move |(name, &ei)| ExportDescriptor {
-                name,
-                ty: match ei {
-                    ExportIndex::Func(f_idx) => {
-                        let sig_idx = self.info.func_assoc[f_idx].into();
-                        self.info.signatures[sig_idx].clone().into()
-                    }
-                    ExportIndex::Global(g_idx) => {
-                        let info = &self.info;
-                        let local_global_idx =
-                            LocalGlobalIndex::new(g_idx.index() - info.imported_globals.len());
-                        info.globals[local_global_idx].desc.into()
-                    }
-                    ExportIndex::Memory(m_idx) => {
-                        let info = &self.info;
-                        let local_memory_idx =
-                            LocalMemoryIndex::new(m_idx.index() - info.imported_memories.len());
-                        info.memories[local_memory_idx].into()
-                    }
-                    ExportIndex::Table(t_idx) => {
-                        let info = &self.info;
-                        let local_table_idx =
-                            LocalTableIndex::new(t_idx.index() - info.imported_tables.len());
-                        info.tables[local_table_idx].into()
-                    }
-                },
-            })
+    /// Iterate over the [`ExportType`]s of the exports that this module provides.
+    pub(crate) fn exports_iter(&self) -> impl Iterator<Item = ExportType> + '_ {
+        self.info.exports.iter().map(move |(name, &ei)| ExportType {
+            name,
+            ty: match ei {
+                ExportIndex::Func(f_idx) => {
+                    let sig_idx = self.info.func_assoc[f_idx].into();
+                    self.info.signatures[sig_idx].clone().into()
+                }
+                ExportIndex::Global(g_idx) => {
+                    let info = &self.info;
+                    let local_global_idx =
+                        LocalGlobalIndex::new(g_idx.index() - info.imported_globals.len());
+                    info.globals[local_global_idx].desc.into()
+                }
+                ExportIndex::Memory(m_idx) => {
+                    let info = &self.info;
+                    let local_memory_idx =
+                        LocalMemoryIndex::new(m_idx.index() - info.imported_memories.len());
+                    info.memories[local_memory_idx].into()
+                }
+                ExportIndex::Table(t_idx) => {
+                    let info = &self.info;
+                    let local_table_idx =
+                        LocalTableIndex::new(t_idx.index() - info.imported_tables.len());
+                    info.tables[local_table_idx].into()
+                }
+            },
+        })
     }
 
-    /// Get the [`ExportDescriptor`]s of the exports this [`Module`] provides.
-    pub fn exports(&self) -> Vec<ExportDescriptor> {
+    /// Get the [`ExportType`]s of the exports this [`Module`] provides.
+    pub fn exports(&self) -> Vec<ExportType> {
         self.exports_iter().collect()
     }
 }
@@ -322,8 +319,8 @@ pub struct ImportName {
 /// Wasm globals, and Wasm tables.
 ///
 /// Used in [`ModuleInfo`] to access function signatures ([`SigIndex`]s,
-/// [`FuncSig`]), [`GlobalInit`]s, [`MemoryDescriptor`]s, and
-/// [`TableDescriptor`]s.
+/// [`FuncSig`]), [`GlobalInit`]s, [`MemoryType`]s, and
+/// [`TableType`]s.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportIndex {
     /// Function export index. [`FuncIndex`] is a type-safe handle referring to

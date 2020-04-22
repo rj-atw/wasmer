@@ -117,12 +117,12 @@ struct wasmer_import_object_t {
 
 };
 
-/// Opaque pointer to `NamedExportDescriptor`.
+/// Opaque pointer to `NamedExportType`.
 struct wasmer_export_descriptor_t {
 
 };
 
-/// Opaque pointer to `NamedExportDescriptors`.
+/// Opaque pointer to `NamedExportTypes`.
 struct wasmer_export_descriptors_t {
 
 };
@@ -736,7 +736,7 @@ void *wasmer_instance_context_data_get(const wasmer_instance_context_t *ctx);
 /// // Allocate them and set them on the given instance.
 /// my_data *data = malloc(sizeof(my_data));
 /// data->… = …;
-/// wasmer_instance_context_data_set(instance, (void*) my_data);
+/// wasmer_instance_context_data_set(instance, (void*) data);
 ///
 /// // You can read your data.
 /// {
