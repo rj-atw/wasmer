@@ -443,6 +443,7 @@ impl RunnableModule for LLVMBackend {
             mem::transmute(symbol)
         };
 
+
         SIGNAL_HANDLER_INSTALLED.call_once(|| unsafe {
             crate::platform::install_signal_handler();
         });

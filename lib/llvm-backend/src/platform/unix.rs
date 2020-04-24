@@ -8,6 +8,7 @@ use nix::sys::signal::{
     sigaction, SaFlags, SigAction, SigHandler, SigSet, SIGBUS, SIGILL, SIGSEGV,
 };
 use std::ptr;
+use std::sync::Once;
 
 /// `__register_frame` and `__deregister_frame` on macos take a single fde as an
 /// argument, so we need to parse the fde table here.
@@ -49,6 +50,28 @@ pub unsafe fn visit_fde(addr: *mut u8, _size: usize, visitor: extern "C" fn(*mut
 extern "C" {
     #[cfg_attr(nightly, unwind(allowed))]
     fn throw_trap(ty: i32) -> !;
+
+    fn isWasmThread() -> bool;
+
+    //#[repr(C)]
+    //fn set_default_handler_sigsegv( _: extern "C" fn(i32)) -> !;
+
+}
+
+static INIT_HANDLER: Once = Once::new();
+static mut HANDLER: SigHandler = SigHandler::SigIgn;
+
+unsafe fn call(h: &SigHandler,    
+    _signum: ::nix::libc::c_int,
+    _siginfo: *mut siginfo_t,
+    _ucontext: *mut c_void,
+) {
+   match h {
+    SigHandler::Handler(f) => f(_signum),//set_default_handler_sigsegv(f), 
+    SigHandler::SigAction(f) => f(_signum, _siginfo, _ucontext), 
+    SigHandler::SigDfl => (),
+    SigHandler::SigIgn => (),
+   }
 }
 
 pub unsafe fn install_signal_handler() {
@@ -57,7 +80,7 @@ pub unsafe fn install_signal_handler() {
         SaFlags::SA_ONSTACK | SaFlags::SA_SIGINFO,
         SigSet::empty(),
     );
-    sigaction(SIGSEGV, &sa).unwrap();
+    INIT_HANDLER.call_once(|| { HANDLER = sigaction(SIGSEGV, &sa).unwrap().handler()});
     sigaction(SIGBUS, &sa).unwrap();
     sigaction(SIGILL, &sa).unwrap();
 }
@@ -72,12 +95,19 @@ extern "C" fn signal_trap_handler(
         if SigSet::all().thread_unblock().is_err() {
             std::process::abort();
         }
+
+
+        if !isWasmThread() {
+            //Current thread does not have Wasm content
+        call(&HANDLER, _signum, _siginfo, _ucontext);
+    } else {
         // Apparently, we can unwind from arbitary instructions, as long
         // as we don't need to catch the exception inside the function that
         // was interrupted.
         //
         // This works on macos, not sure about linux.
         throw_trap(2);
+    }
     }
 }
 
