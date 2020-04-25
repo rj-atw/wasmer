@@ -37,15 +37,6 @@ extern "C" bool isWasmThread() {
   return unwind_state != nullptr;
 } 
 
-/*
-static void (*global_sigsegv_handler)(int) = nullptr;
-
-
-extern "C" static void set_default_handler_sigsegv(void (*func)(int)) {
-  global_sigsegv_handler = func;   
-}
-*/
-
 
 static void unwind_payload(void *_point) {
   UnwindPoint *point = (UnwindPoint *)_point;

@@ -5,7 +5,7 @@ use libc::{
     PROT_READ, PROT_WRITE,
 };
 use nix::sys::signal::{
-    sigaction, SaFlags, SigAction, SigHandler, SigSet, SIGBUS, SIGILL, SIGSEGV,
+    Signal, sigaction, SaFlags, SigAction, SigHandler, SigSet, SIGBUS, SIGILL, SIGSEGV,
 };
 use std::ptr;
 use std::sync::Once;
@@ -52,14 +52,12 @@ extern "C" {
     fn throw_trap(ty: i32) -> !;
 
     fn isWasmThread() -> bool;
-
-    //#[repr(C)]
-    //fn set_default_handler_sigsegv( _: extern "C" fn(i32)) -> !;
-
 }
 
 static INIT_HANDLER: Once = Once::new();
-static mut HANDLER: SigHandler = SigHandler::SigIgn;
+static mut SIGSEGV_EXT_HANDLER: SigHandler = SigHandler::SigIgn;
+static mut SIGBUS_EXT_HANDLER: SigHandler = SigHandler::SigIgn;
+static mut SIGKILL_EXT_HANDLER: SigHandler = SigHandler::SigIgn;
 
 unsafe fn call(h: &SigHandler,    
     _signum: ::nix::libc::c_int,
@@ -80,9 +78,11 @@ pub unsafe fn install_signal_handler() {
         SaFlags::SA_ONSTACK | SaFlags::SA_SIGINFO,
         SigSet::empty(),
     );
-    INIT_HANDLER.call_once(|| { HANDLER = sigaction(SIGSEGV, &sa).unwrap().handler()});
-    sigaction(SIGBUS, &sa).unwrap();
-    sigaction(SIGILL, &sa).unwrap();
+    INIT_HANDLER.call_once(|| { 
+        SIGSEGV_EXT_HANDLER = sigaction(SIGSEGV, &sa).unwrap().handler();
+        SIGBUS_EXT_HANDLER = sigaction(SIGBUS, &sa).unwrap().handler();
+        SIGKILL_EXT_HANDLER = sigaction(SIGILL, &sa).unwrap().handler();
+    });
 }
 
 #[cfg_attr(nightly, unwind(allowed))]
@@ -97,10 +97,16 @@ extern "C" fn signal_trap_handler(
         }
 
 
+        //Current thread does not have Wasm content
         if !isWasmThread() {
-            //Current thread does not have Wasm content
-        call(&HANDLER, _signum, _siginfo, _ucontext);
-    } else {
+            match Signal::from_c_int(_signum) {
+                Ok(SIGSEGV) => call(&SIGSEGV_EXT_HANDLER, _signum, _siginfo, _ucontext),
+                Ok(SIGBUS) => call(&SIGBUS_EXT_HANDLER, _signum, _siginfo, _ucontext),
+                Ok(SIGILL) => call(&SIGKILL_EXT_HANDLER, _signum, _siginfo, _ucontext),
+                Ok(_) => /* This case should not occur */ (),
+                Err(_) => (),
+            }
+        } else {
         // Apparently, we can unwind from arbitary instructions, as long
         // as we don't need to catch the exception inside the function that
         // was interrupted.
